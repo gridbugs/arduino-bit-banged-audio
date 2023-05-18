@@ -17,10 +17,13 @@ COMPILE_COMMANDS=compile_commands.json
 $(TARGET).elf: $(OBJ)
 	$(CC) $(CFLAGS) $(OBJ) -o $@
 
-%.o : %.c
+periods.h : mk_periods.py
+	python3 mk_periods.py > $@
+
+%.o : %.c periods.h
 	$(CC) $(CFLAGS) -c -o $@ $<
 
-clean: 
+clean:
 	rm -rf *.o *.elf
 
 $(COMPILE_COMMANDS):
