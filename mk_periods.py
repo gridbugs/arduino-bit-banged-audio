@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 
-N_PERIODS = 2048
+N_PERIODS = 512
 START_NOTE_FREQUENCY_HZ = 27.5
-OCTAVE_INDEX_RANGE = 256
+OCTAVE_INDEX_RANGE = 64
 FRAMES_PER_SECOND = 100000
 
 def index_to_frequency_hz(index):

@@ -9,12 +9,12 @@ MCU=atmega328p
 # The --param=min-pagesize=0 argument is to fix the error:
 # error: array subscript 0 is outside array bounds of ‘volatile uint8_t[0]’ {aka ‘volatile unsigned char[]’}
 # ...which is incorrectly reported in some versions of gcc
-CFLAGS=-mmcu=$(MCU) -std=c99 -O1 -Werror -Wall --param=min-pagesize=0
+CFLAGS=-mmcu=$(MCU) -std=c99 -O1 -Werror -Wall --param=min-pagesize=0 -Wno-error=unused-but-set-variable -Wno-error=unused-variable
 
 TOOLS_DIR=tools
 COMPILE_COMMANDS=compile_commands.json
 
-$(TARGET).elf: $(OBJ)
+$(TARGET).elf: $(OBJ) periods.h
 	$(CC) $(CFLAGS) $(OBJ) -o $@
 
 periods.h : mk_periods.py

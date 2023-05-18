@@ -26,14 +26,6 @@ void USART0_init(void) {
     stdout = &uartout;
 }
 
-void led_on(void) {
-    PORTB |= 1;
-}
-
-void led_off(void) {
-    PORTB &= ~1;
-}
-
 void timer_init(void) {
     // Put timer in CTC mode where the counter resets when it equals OCR1A
     TCCR1A &= ~((1 << WGM11) | (1 << WGM10));
@@ -44,6 +36,32 @@ void timer_init(void) {
     TCCR1B &= ~(1 << CS12);
     OCR1A = 160; // resets at 100khz
     OCR1B = 0xFFFF;
+}
+
+
+void ADC_init(void) {
+    PRR &= ~(1 << PRADC); // disable power reduction ADC bit
+    ADMUX = 0; // use AREF pin for reference voltage, right adjust the result, select ADC0 channel
+    ADCSRA = (1 << ADEN); // enable the ADC
+    DIDR0 = 0xFF; // disable all the digital inputs sharing pins with the ADC
+}
+
+void ADC_start_read(uint8_t channel) {
+    ADMUX &= ~0xF; // clear the channel bits
+    ADMUX |= (channel & 0xF); // set the channel
+    ADCSRA |= (1 << ADSC); // start the conversion
+}
+
+uint16_t ADC_complete_read(void) {
+    while ((ADCSRA & (1 << ADSC)) != 0); // wait for the start bit to clear
+    uint16_t lo = (uint16_t)ADCL;
+    uint16_t hi = (uint16_t)ADCH << 8;;
+    return hi | lo;
+}
+
+uint16_t ADC_read(uint8_t channel) {
+    ADC_start_read(channel);
+    return ADC_complete_read();
 }
 
 uint16_t read_timer_counter(void) {
@@ -59,28 +77,39 @@ int timer_match_check_and_clear(void) {
     }
 }
 
-uint32_t rand() {
-    static uint32_t x = 70;
-    x ^= x << 13;
-    x ^= x >> 17;
-    x ^= x << 5;
-    return x;
-}
 
-uint16_t rand_u16() {
-    return (uint16_t)rand();
-}
+typedef struct {
+    uint16_t period_adc;
+    uint16_t pulse_width_adc;
+} voice_data_raw_t;
 
 typedef struct {
     uint16_t period;
     uint16_t pulse_width;
+} voice_data_t;
+
+inline voice_data_t voice_data_from_raw(voice_data_raw_t raw, voice_data_raw_t all_raw) {
+    int period_index = (raw.period_adc + all_raw.period_adc) / 4;
+    uint16_t period = periods[period_index];
+    uint16_t scale = 8;
+    uint16_t divisor = 15 + ((1 + (raw.pulse_width_adc / 16)) * ((1 + (all_raw.pulse_width_adc / 16))));
+    return (voice_data_t) {
+        .period = period,
+        .pulse_width = (period * scale) / divisor,
+    };
+}
+
+typedef struct {
+    voice_data_t data;
     uint16_t countdown;
 } voice_t;
 
 voice_t make_voice(uint16_t period) {
     return (voice_t) {
-        .period = period,
-        .pulse_width = period / 2,
+        .data = (voice_data_t) {
+            .period = period,
+            .pulse_width = period / 2,
+        },
         .countdown = period,
     };
 }
@@ -88,12 +117,15 @@ voice_t make_voice(uint16_t period) {
 uint8_t tick_voice(voice_t* voice) {
     voice->countdown -= 1;
     if (voice->countdown == 0) {
-        voice->countdown = voice->period;
+        voice->countdown = voice->data.period;
     }
-    return voice->countdown < voice->pulse_width;
+    return voice->countdown < voice->data.pulse_width;
 }
 
+#define NUM_ADC_CHANNELS 8
+
 int main(void) {
+    ADC_init();
     USART0_init();
     printf("\r\nHello, World!\r\n");
 
@@ -102,17 +134,59 @@ int main(void) {
     timer_init();
 
     voice_t voices[3] = {
-        make_voice(227),
-        make_voice(303),
-        make_voice(454),
+        make_voice(periods[100]),
+        make_voice(periods[148]),
+        make_voice(periods[196]),
     };
 
+    uint8_t current_adc_index = 0;
+    uint16_t adc_buffer[NUM_ADC_CHANNELS] = { 0 };
+
+    uint16_t count = 0;
+
     while (1) {
+        ADC_start_read(current_adc_index);
         while (!timer_match_check_and_clear());
         uint8_t v0 = tick_voice(&voices[0]);
         uint8_t v1 = tick_voice(&voices[1]);
         uint8_t v2 = tick_voice(&voices[2]);
         PORTB = v0 | (v1 << 1) | (v2 << 2);
+
+
+        voice_data_raw_t all_raw = (voice_data_raw_t) {
+            .period_adc = adc_buffer[6],
+            .pulse_width_adc = adc_buffer[7],
+        };
+
+        if ((count & 0xF) == 4) {
+            voice_data_raw_t voice0_raw = (voice_data_raw_t) {
+                .period_adc = adc_buffer[0],
+                .pulse_width_adc = adc_buffer[1],
+            };
+            voices[0].data = voice_data_from_raw(voice0_raw, all_raw);
+        }
+
+        if ((count & 0xF) == 8) {
+            voice_data_raw_t voice1_raw = (voice_data_raw_t) {
+                .period_adc = adc_buffer[2],
+                .pulse_width_adc = adc_buffer[3],
+            };
+            voices[1].data = voice_data_from_raw(voice1_raw, all_raw);
+        }
+
+        if ((count & 0xF) == 12) {
+            voice_data_raw_t voice2_raw = (voice_data_raw_t) {
+                .period_adc = adc_buffer[4],
+                .pulse_width_adc = adc_buffer[5],
+            };
+            voices[2].data = voice_data_from_raw(voice2_raw, all_raw);
+        }
+
+        if ((count & 0xF) == 0) {
+            adc_buffer[current_adc_index] = ADC_complete_read();
+            current_adc_index = (current_adc_index + 1) % NUM_ADC_CHANNELS;
+        }
+        count += 1;
     }
 
     return 0;
