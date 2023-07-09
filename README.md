@@ -4,7 +4,7 @@
 
 ### Flash an Arduino Nano
 ```
-make && sudo avrdude -P /dev/ttyUSB0 -c arduino -p m328p -U flash:w:hello.elf
+make && sudo avrdude -P /dev/ttyUSB0 -c arduino -p m328p -U flash:w:main.elf
 ```
 
 ### Connect USB serial console

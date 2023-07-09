@@ -1,4 +1,4 @@
-TARGET=hello
+TARGET=main
 
 SRC=main.c
 OBJ=$(SRC:.c=.o)

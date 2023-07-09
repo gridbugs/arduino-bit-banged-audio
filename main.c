@@ -47,8 +47,12 @@ void ADC_init(void) {
 }
 
 void ADC_start_read(uint8_t channel) {
-    ADMUX &= ~0xF; // clear the channel bits
-    ADMUX |= (channel & 0xF); // set the channel
+    // This also clears the control bits in ADMUX which should be 0 anyway.
+    // Doing this in two stages (clearing the channel bits and then or-ing in
+    // the new channel bits seems to blend the value at ADC0 with the intended
+    // ADC channel so we do it in one stage by writing the channel directly to
+    // the ADC.
+    ADMUX = (channel & 0xF);
     ADCSRA |= (1 << ADSC); // start the conversion
 }
 
@@ -152,7 +156,6 @@ int main(void) {
         uint8_t v2 = tick_voice(&voices[2]);
         PORTB = v0 | (v1 << 1) | (v2 << 2);
 
-
         voice_data_raw_t all_raw = (voice_data_raw_t) {
             .period_adc = adc_buffer[6],
             .pulse_width_adc = adc_buffer[7],
@@ -183,6 +186,7 @@ int main(void) {
         }
 
         if ((count & 0xF) == 0) {
+            // Ignore the least significant bits to reduce noise
             adc_buffer[current_adc_index] = ADC_complete_read();
             current_adc_index = (current_adc_index + 1) % NUM_ADC_CHANNELS;
         }
